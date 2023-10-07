@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rate Web Pages</title>
+    <style>
+        iframe {
+            width: 100%;
+            height: 80vh;
+        }
+        span, button, input {
+            margin: .5em;
+        }
+        #webPageContainer {
+            position: relative;
+        }
+        #webPageContainer div {
+            position: absolute;
+            top: 50%;
+            right: 50%;
+            text-align: center;
+            font-size: 4em;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <input type="file" id="fileInput" accept=".txt">
+        <span>Page <input id="progress" type="number" onchange="onChangePageSelection(this.value)"> of <span id="progressTotal">0</span></span> 
+        <div class="counters">
+            <span id="acceptedCounter">0 Accepted</span>
+            <span id="rejectedCounter">0 Rejected</span>
+            <span id="undecidedCounter">0 Undecided</span>
+            <button id="copyButton" onclick="copyAcceptedURLs()">Copy Accepted URLs</button>
+            <button id="copyButtonUndecided" onclick="copyUndecidedURLs()">Copy Undecided URLs</button>
+        </div>
+        <div id="webPageContainer">
+            <iframe id="webPageFrame"></iframe>
+            <div id="stateText"></div>
+        </div>
+        <div id="swipeButtons">
+            <button onclick="swipe('right')">Previous</button>
+            <button onclick="swipe('left')">Next</button>
+            <button id="acceptButton" onclick="toggleAccept()">Accept</button>
+            <button id="rejectButton" onclick="toggleReject()">Reject</button>
+        </div>
+    </div>
+
+    <script>
+        // names for accepted, rejected, and undecided pages
+        const acceptedName = "acceptedPages";
+        const rejectedName = "rejectedPages";
+        const undecidedName = "undecidedPages";
+        const progressName = "progress";
+        const urlsName = "allPages";
+
+        const webPageFrame = document.getElementById('webPageFrame');
+        const progress = document.getElementById('progress');
+        const progressTotal = document.getElementById('progressTotal');
+        const acceptedCounter = document.getElementById('acceptedCounter');
+        const rejectedCounter = document.getElementById('rejectedCounter');
+        const undecidedCounter = document.getElementById('undecidedCounter');
+        const acceptButton = document.getElementById('acceptButton');
+        const rejectButton = document.getElementById('rejectButton');
+        const fileInput = document.getElementById('fileInput');
+        const stateText = document.getElementById('stateText');
+
+        function updateProgress() {
+            progress.value = currentIndex + 1;
+            progressTotal.innerText = urls.length;
+            localStorage.setItem(progressName, currentIndex);
+        }
+
+        function updateAcceptButton() {
+            const url = urls[currentIndex];
+            const acceptedPages = getAcceptedPages();
+            if (acceptedPages.includes(url)) {
+                acceptButton.innerText = 'Undo accept';
+            } else {
+                acceptButton.innerText = 'Accept';
+            }
+        }
+
+        function updateRejectButton() {
+            const url = urls[currentIndex];
+            const rejectedPages = getRejectedPages();
+            if (rejectedPages.includes(url)) {
+                rejectButton.innerText = 'Undo reject';
+            } else {
+                rejectButton.innerText = 'Reject';
+            }
+        }
+
+        function updateAcceptedCounter() {
+            acceptedCounter.innerText = `${getAcceptedPages().length} Accepted`;
+        }
+
+        function updateRejectedCounter() {
+            rejectedCounter.innerText = `${getRejectedPages().length} Rejected`;
+        }
+
+        function updateUndecidedCounter() {
+            undecidedCounter.innerText = `${getUndecidedPages().length} Undecided`;
+        }
+
+        function loadWebPage(url) {
+            webPageFrame.src = url;
+        }
+
+        function swipe(direction) {
+            if (direction === 'left'  && currentIndex < urls.length - 1) {
+                setCurrentIndex(currentIndex + 1);
+            } else if (direction === 'right' && currentIndex > 0) {
+                setCurrentIndex(currentIndex - 1);
+            } else if (direction === 'up') {
+                if (isUndecided()) {
+                    toggleAccept();
+                } else if (isRejected()) {
+                    toggleReject();
+                }
+            } else if (direction === 'down') {
+                if (isUndecided()) {
+                    toggleReject();
+                } else if (isAccepted()) {
+                    toggleAccept();
+                }
+            }
+        }
+
+        function setCurrentIndex(newIdx) {
+            currentIndex = newIdx;
+            loadWebPage(urls[currentIndex]);
+            updateAcceptButton();
+            updateRejectButton();
+            updateProgress();
+            localStorage.setItem(progressName, currentIndex);
+            updateStateText();
+        }
+
+        function updateStateText() {
+            if (isAccepted()) {
+                stateText.innerHTML = '✅︎';
+            } else if (isRejected()) {
+                stateText.innerHTML = '❌';
+            } else {
+                stateText.innerHTML = '';
+            }
+        }
+
+        function getAcceptedPages() {
+            return getArrayStorage(acceptedName);
+        }
+        
+        function isAccepted() {
+            const acceptedPages = getAcceptedPages();
+            const url = urls[currentIndex];
+            return acceptedPages.includes(url);
+        }
+
+        function isRejected() {
+            const rejectedPages = getRejectedPages();
+            const url = urls[currentIndex];
+            return rejectedPages.includes(url);
+        }
+
+        function isUndecided() {
+            const undecidedPages = getUndecidedPages();
+            const url = urls[currentIndex];
+            return undecidedPages.includes(url);
+        }
+
+        function toggleAccept() {
+            if (isRejected()) {
+                toggleReject();
+            }
+            const acceptedPages = getAcceptedPages();
+            const url = urls[currentIndex];
+            const idx = acceptedPages.indexOf(url);
+            if (idx === -1) {
+                acceptedPages.push(url);
+                setUndecided(url, false);
+            } else {
+                acceptedPages.splice(idx, 1);
+                setUndecided(url, true);
+            }
+            localStorage.setItem(acceptedName, acceptedPages);
+            updateAcceptedCounter();
+            updateAcceptButton();
+            updateStateText();
+        }
+
+        function getRejectedPages() {
+            return getArrayStorage(rejectedName);
+        }
+
+        function toggleReject() {
+            if (isAccepted()) {
+                toggleAccept();
+            }
+            const rejectedPages = getRejectedPages();
+            const url = urls[currentIndex];
+            const idx = rejectedPages.indexOf(url);
+            if (idx === -1) {
+                rejectedPages.push(url);
+                setUndecided(url, false);
+            } else {
+                rejectedPages.splice(idx, 1);
+                setUndecided(url, true);
+            }
+            localStorage.setItem(rejectedName, rejectedPages);
+            updateRejectedCounter();
+            updateRejectButton();
+            updateStateText();
+        }
+
+        function getUndecidedPages() {
+            return getArrayStorage(undecidedName);
+        }
+
+        function setUndecided(url, undecided) {
+            const undecidedPages = getUndecidedPages();
+            const idx = undecidedPages.indexOf(url);
+            if (idx === -1 && undecided) {
+                undecidedPages.push(url);
+            } else if (!undecided) {
+                undecidedPages.splice(idx, 1);
+            }
+            localStorage.setItem(undecidedName, undecidedPages);
+            updateUndecidedCounter();
+            updateStateText();
+        }
+
+        function copyAcceptedURLs() {
+            const acceptedPages = getAcceptedPages();
+            const acceptedURLs = acceptedPages.join('\n');
+            copyTextToClipboard(acceptedURLs);
+        }
+
+        function copyUndecidedURLs() {
+            const undecidedPages = getUndecidedPages();
+            const undecidedURLs = undecidedPages.join('\n');
+            copyTextToClipboard(undecidedURLs);
+        }
+
+        // Function to copy text to clipboard
+        function copyTextToClipboard(text) {
+            const dummy = document.createElement("textarea");
+            document.body.appendChild(dummy);
+            dummy.value = text;
+            dummy.select();
+            document.execCommand("copy");
+            document.body.removeChild(dummy);
+        }
+        
+        function getArrayStorage(name) {
+            return localStorage.getItem(name)?.split(',')?.filter(s => s.trim() !== '') || [];
+        }
+
+        fileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+                    const inputUrls = fileContent.split('\n').filter(url => url.trim() !== '');
+                    urls.length = 0;
+                    urls.push(...inputUrls);
+                    currentIndex = 0;
+                    if (urls.length > 0) {
+                        loadWebPage(urls[currentIndex]);
+                    }
+                    localStorage.setItem(acceptedName, []);
+                    localStorage.setItem(rejectedName, []);
+                    localStorage.setItem(undecidedName, urls);
+                    localStorage.setItem(urlsName, urls);
+                    updateProgress();
+                    updateAcceptedCounter();
+                    updateAcceptButton();
+                    updateRejectedCounter();
+                    updateRejectButton();
+                    updateUndecidedCounter();
+                    updateStateText();
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        document.onkeydown = e => {
+          if (e.keyCode == '38') {
+              swipe('up');
+          }
+          else if (e.keyCode == '40') {
+              swipe('down');
+          }
+          else if (e.keyCode == '37') {
+              swipe('right');
+          }
+          else if (e.keyCode == '39') {
+              swipe('left');
+          }
+        };
+
+        function onChangePageSelection(newPage) {
+            newPage = Math.max(newPage, 1);
+            newPage = Math.min(newPage, urls.length);
+            setCurrentIndex(newPage - 1);
+        }
+
+        const urls = getArrayStorage(urlsName);
+        let currentIndex = parseInt(localStorage.getItem(progressName)) || 0;
+        if (urls.length > 0) {
+            loadWebPage(urls[currentIndex]);
+        }
+
+        updateProgress();
+        updateAcceptedCounter();
+        updateAcceptButton();
+        updateRejectedCounter();
+        updateRejectButton();
+        updateUndecidedCounter();
+        updateStateText();
+    </script>
+</body>
+</html>
